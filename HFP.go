@@ -448,7 +448,7 @@ func main() {
 	}
 	fmt.Println(logsymbols.Info, "Saved HEP file is ", fi.Size(), "bytes")
 
-	fmt.Printf("Listening for HEP on: %v\nProxying HEP to: %v\nIPFilter: %v\nProto HEP: %v\nIPFilterAction: %v\nPrometheus metrics: %v\n\n", *localAddr, *remoteAddr, *remoteProto, *IPfilter, *IPfilterAction, *PrometheusPort)
+	fmt.Printf("Listening for HEP on: %v\nProxying HEP to: %v\nProto HEP: %v\nIPFilter: %v\nIPFilterAction: %v\nPrometheus metrics: %v\n\n", *localAddr, *remoteAddr, *remoteProto, *IPfilter, *IPfilterAction, *PrometheusPort)
 	AppLogger.Println("Listening for HEP on:", *localAddr, "\n", "Proxying HEP to:", *remoteAddr, "\n", "Proto HEP:", *remoteProto, "\n", "IPFilter:", *IPfilter, "\n", "IPFilterAction:", *IPfilterAction, "\n", "Prometheus metrics:", *PrometheusPort)
 	if *IPfilter == "" {
 		fmt.Println(logsymbols.Success, "HFP starting in proxy high performance mode\n__________________________________________")
