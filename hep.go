@@ -4,12 +4,11 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"log"
 	"net"
 	"strconv"
 	"time"
-	"log"
 )
-
 
 // HEP chuncks
 const (
@@ -31,6 +30,39 @@ const (
 	Vlan      = 18 // Chunk 0x0012 VLAN
 	NodeName  = 19 // Chunk 0x0013 NodeName
 )
+
+type Packet struct {
+	Version   byte
+	Protocol  byte
+	SrcIP     net.IP
+	DstIP     net.IP
+	SrcPort   uint16
+	DstPort   uint16
+	Tsec      uint32
+	Tmsec     uint32
+	ProtoType byte
+	Payload   []byte
+	CID       []byte
+	Vlan      uint16
+}
+
+type HepMsg struct {
+	Version   byte
+	Protocol  byte
+	SrcIP     net.IP
+	DstIP     net.IP
+	SrcPort   uint16
+	DstPort   uint16
+	Tsec      uint32
+	Tmsec     uint32
+	ProtoType byte
+	NodeID    uint32
+	NodePW    string
+	Payload   []byte
+	CID       []byte
+	Vlan      uint16
+	NodeName  string
+}
 
 // HEP represents HEP packet
 type HEP struct {
@@ -62,7 +94,7 @@ func DecodeHEP(packet []byte) (*HEP, error) {
 	if err != nil {
 		return nil, err
 	}
-//	log.Printf("HEP decoded ", hep)
+	//	log.Printf("HEP decoded ", hep)
 	return hep, nil
 }
 
@@ -77,9 +109,9 @@ func (h *HEP) parse(packet []byte) error {
 	} else {
 		//err = h.Unmarshal(packet)
 		//if err != nil {
-	//		log.Println("malformed packet with length %d which is neither hep nor protobuf encapsulated", len(packet))
-			return err
-	//	}
+		//		log.Println("malformed packet with length %d which is neither hep nor protobuf encapsulated", len(packet))
+		return err
+		//	}
 	}
 
 	h.Timestamp = time.Unix(int64(h.Tsec), int64(h.Tmsec*1000))
@@ -87,8 +119,6 @@ func (h *HEP) parse(packet []byte) error {
 		log.Println("Debug> got null timestamp from nodeID %d", h.NodeID)
 		h.Timestamp = time.Now()
 	}
-
-
 
 	if h.NodeName == "" {
 		h.NodeName = strconv.FormatUint(uint64(h.NodeID), 10)
@@ -102,9 +132,9 @@ func (h *HEP) parse(packet []byte) error {
 
 func (h *HEP) parseHEP(packet []byte) error {
 	length := binary.BigEndian.Uint16(packet[4:6])
-//	if int(length) != len(packet) {
-//		return fmt.Errorf("HEP packet length is %d but should be %d", len(packet), length)
-//	}
+	//	if int(length) != len(packet) {
+	//		return fmt.Errorf("HEP packet length is %d but should be %d", len(packet), length)
+	//	}
 	currentByte := uint16(6)
 
 	for currentByte < length {
@@ -197,4 +227,174 @@ func (h *HEP) parseHEP(packet []byte) error {
 		currentByte += chunkLength
 	}
 	return nil
+}
+
+func (h *HepMsg) Marshal() (dAtA []byte, err error) {
+	size := h.Size()
+	dAtA = make([]byte, size)
+	n, err := h.MarshalTo(dAtA)
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (h *HepMsg) MarshalTo(dAtA []byte) (int, error) {
+	var i int
+	_ = i
+
+	i += copy(dAtA[i:], []byte{0x48, 0x45, 0x50, 0x33})
+	binary.BigEndian.PutUint16(dAtA[i:], uint16(len(dAtA)))
+	i += 2
+
+	i += copy(dAtA[i:], []byte{0x00, 0x00, 0x00, 0x01, 0x00, 0x07})
+	dAtA[i] = h.Version
+	i++
+
+	i += copy(dAtA[i:], []byte{0x00, 0x00, 0x00, 0x02, 0x00, 0x07})
+	dAtA[i] = h.Protocol
+	i++
+
+	if h.Version == 0x02 {
+		if h.SrcIP != nil {
+			i += copy(dAtA[i:], []byte{0x00, 0x00, 0x00, 0x03})
+			binary.BigEndian.PutUint16(dAtA[i:], 6+uint16(len(h.SrcIP)))
+			i += 2
+			i += copy(dAtA[i:], h.SrcIP)
+		}
+
+		if h.DstIP != nil {
+			i += copy(dAtA[i:], []byte{0x00, 0x00, 0x00, 0x04})
+			binary.BigEndian.PutUint16(dAtA[i:], 6+uint16(len(h.DstIP)))
+			i += 2
+			i += copy(dAtA[i:], h.DstIP)
+		}
+	} else {
+		if h.SrcIP != nil {
+			i += copy(dAtA[i:], []byte{0x00, 0x00, 0x00, 0x05})
+			binary.BigEndian.PutUint16(dAtA[i:], 6+uint16(len(h.SrcIP)))
+			i += 2
+			i += copy(dAtA[i:], h.SrcIP)
+		}
+
+		if h.DstIP != nil {
+			i += copy(dAtA[i:], []byte{0x00, 0x00, 0x00, 0x06})
+			binary.BigEndian.PutUint16(dAtA[i:], 6+uint16(len(h.DstIP)))
+			i += 2
+			i += copy(dAtA[i:], h.DstIP)
+		}
+	}
+
+	i += copy(dAtA[i:], []byte{0x00, 0x00, 0x00, 0x07, 0x00, 0x08})
+	binary.BigEndian.PutUint16(dAtA[i:], h.SrcPort)
+	i += 2
+
+	i += copy(dAtA[i:], []byte{0x00, 0x00, 0x00, 0x08, 0x00, 0x08})
+	binary.BigEndian.PutUint16(dAtA[i:], h.DstPort)
+	i += 2
+
+	i += copy(dAtA[i:], []byte{0x00, 0x00, 0x00, 0x09, 0x00, 0x0a})
+	binary.BigEndian.PutUint32(dAtA[i:], h.Tsec)
+	i += 4
+
+	i += copy(dAtA[i:], []byte{0x00, 0x00, 0x00, 0x0a, 0x00, 0x0a})
+	binary.BigEndian.PutUint32(dAtA[i:], h.Tmsec)
+	i += 4
+
+	i += copy(dAtA[i:], []byte{0x00, 0x00, 0x00, 0x0b, 0x00, 0x07})
+	dAtA[i] = h.ProtoType
+	i++
+
+	i += copy(dAtA[i:], []byte{0x00, 0x00, 0x00, 0x0c, 0x00, 0x0a})
+	binary.BigEndian.PutUint32(dAtA[i:], h.NodeID)
+	i += 4
+
+	if h.NodePW != "" {
+		i += copy(dAtA[i:], []byte{0x00, 0x00, 0x00, 0x0e})
+		binary.BigEndian.PutUint16(dAtA[i:], 6+uint16(len(h.NodePW)))
+		i += 2
+		i += copy(dAtA[i:], h.NodePW)
+	}
+
+	if h.Payload != nil {
+		i += copy(dAtA[i:], []byte{0x00, 0x00, 0x00, 0x0f})
+		binary.BigEndian.PutUint16(dAtA[i:], 6+uint16(len(h.Payload)))
+		i += 2
+		i += copy(dAtA[i:], h.Payload)
+	}
+
+	if h.CID != nil {
+		i += copy(dAtA[i:], []byte{0x00, 0x00, 0x00, 0x11})
+		binary.BigEndian.PutUint16(dAtA[i:], 6+uint16(len(h.CID)))
+		i += 2
+		i += copy(dAtA[i:], h.CID)
+	}
+
+	i += copy(dAtA[i:], []byte{0x00, 0x00, 0x00, 0x12, 0x00, 0x08})
+	binary.BigEndian.PutUint16(dAtA[i:], h.Vlan)
+	i += 2
+
+	if h.NodeName != "" {
+		i += copy(dAtA[i:], []byte{0x00, 0x00, 0x00, 0x13})
+		binary.BigEndian.PutUint16(dAtA[i:], 6+uint16(len(h.NodeName)))
+		i += 2
+		i += copy(dAtA[i:], h.NodeName)
+	}
+
+	return i, nil
+}
+
+func (h *HepMsg) Size() (n int) {
+	n += 4 + 2     // len("HEP3") + 2
+	n += 4 + 2 + 1 // len(vendor) + len(chunk) + len(Version)
+	n += 4 + 2 + 1 // len(vendor) + len(chunk) + len(Protocol)
+	if h.SrcIP != nil {
+		n += 4 + 2 + len(h.SrcIP) // len(vendor) + len(chunk) + len(SrcIP)
+	}
+	if h.DstIP != nil {
+		n += 4 + 2 + len(h.DstIP) // len(vendor) + len(chunk) + len(DstIP)
+	}
+	n += 4 + 2 + 2 // len(vendor) + len(chunk) + len(SrcPort)
+	n += 4 + 2 + 2 // len(vendor) + len(chunk) + len(DstPort)
+	n += 4 + 2 + 4 // len(vendor) + len(chunk) + len(Tsec)
+	n += 4 + 2 + 4 // len(vendor) + len(chunk) + len(Tmsec)
+	n += 4 + 2 + 1 // len(vendor) + len(chunk) + len(ProtoType)
+	n += 4 + 2 + 4 // len(vendor) + len(chunk) + len(NodeID)
+	if h.NodePW != "" {
+		n += 4 + 2 + len(h.NodePW) // len(vendor) + len(chunk) + len(NodePW)
+	}
+	if h.Payload != nil {
+		n += 4 + 2 + len(h.Payload) // len(vendor) + len(chunk) + len(Payload)
+	}
+	if h.CID != nil {
+		n += 4 + 2 + len(h.CID) // len(vendor) + len(chunk) + len(CID)
+	}
+	n += 4 + 2 + 2 // len(vendor) + len(chunk) + len(Vlan)
+	if h.NodeName != "" {
+		n += 4 + 2 + len(h.NodeName) // len(vendor) + len(chunk) + len(NodeName)
+	}
+	return n
+}
+
+// MakeHEPPing creates the HEP Packet which
+// will be send to wire
+func MakeHEPPing() (hepMsg []byte, err error) {
+	hep := &HepMsg{
+		Version:   0x02,
+		Protocol:  0x01,
+		SrcIP:     net.ParseIP("192.168.0.1"),
+		DstIP:     net.ParseIP("192.168.0.2"),
+		SrcPort:   5060,
+		DstPort:   5060,
+		Tsec:      uint32(time.Now().Second()),
+		Tmsec:     uint32(0),
+		ProtoType: 0x01,
+		NodeID:    uint32(999),
+		NodePW:    *HepNodePW,
+		Payload:   []byte("HEP PING"),
+	}
+
+	hepMsg, err = hep.Marshal()
+
+	return hepMsg, err
 }

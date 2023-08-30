@@ -14,11 +14,12 @@ import (
 	"github.com/guumaster/logsymbols"
 )
 
-const AppVersion = "0.55.3"
+const AppVersion = "0.55.4"
 
 var localAddr *string = flag.String("l", ":9060", "Local HEP listening address")
 var remoteAddr *string = flag.String("r", "192.168.2.2:9060", "Remote HEP address")
 var remoteProto *string = flag.String("p", "tcp", "Remote Proto type : tcp / tls")
+var HepNodePW *string = flag.String("hp", "", "HEP node PW")
 var skipVerify *bool = flag.Bool("s", false, "Skip verify tls certificate")
 var IPfilter *string = flag.String("ipf", "", "IP filter address from HEP SRC or DST chunks. Option can use multiple IP as comma sepeated values. Default is no filter without processing HEP acting as high performance HEP proxy")
 var IPfilterAction *string = flag.String("ipfa", "pass", "IP filter Action. Options are pass or reject")
@@ -79,6 +80,7 @@ func connectToHEPBackend(dst, proto string) net.Conn {
 		} else {
 			log.Println("Connected to server successfully ", conn)
 			connectionStatus.Set(1)
+			SendPingHEPPacket(conn)
 			copyHEPFileOut(conn)
 			return conn
 		}
@@ -169,6 +171,7 @@ func handleConnection(clientConn net.Conn, destAddr, destProto string) {
 									continue
 								} else {
 									connectionStatus.Set(1)
+									SendPingHEPPacket(destConn)
 									copyHEPFileOut(destConn)
 								}
 								break
@@ -242,6 +245,7 @@ func handleConnection(clientConn net.Conn, destAddr, destProto string) {
 								continue
 							} else {
 								connectionStatus.Set(1)
+								SendPingHEPPacket(destConn)
 								copyHEPFileOut(destConn)
 							}
 							break
@@ -280,6 +284,7 @@ func handleConnection(clientConn net.Conn, destAddr, destProto string) {
 							continue
 						} else {
 							connectionStatus.Set(1)
+							SendPingHEPPacket(destConn)
 							copyHEPFileOut(destConn)
 						}
 						break
@@ -495,4 +500,27 @@ func main() {
 		}
 	}
 
+}
+
+func SendPingHEPPacket(conn net.Conn) {
+
+	if *HepNodePW == "" {
+		return
+	}
+
+	//this is PING
+	msg, err := MakeHEPPing()
+	if err != nil {
+		log.Println("||-->X Make HEP PING", err)
+		return
+	}
+
+	//Send Logged HEP upon reconnect out to backend
+	_, err = conn.Write(msg)
+	if err != nil {
+		log.Println("||-->X Send HEP PING", err)
+		AppLogger.Println("||-->X Send HEP PING", err)
+	} else if *Debug == "on" {
+		log.Println("-->|| Sent HEP Ping")
+	}
 }
