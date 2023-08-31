@@ -413,20 +413,20 @@ func Human2FileSize(size string) (int64, error) {
 		}
 
 		if strings.HasSuffix(size, suffix) {
-			dataBytes := strings.TrimPrefix(size, suffix)
+			dataBytes := strings.TrimSuffix(size, suffix)
 			baseVar, err := strconv.Atoi(dataBytes)
 			if err != nil {
 				return 0, err
 			} else {
-				bytesSize = int64(math.Pow(float64(baseVar), float64(i)))
-				return bytesSize, nil
+				bytesSize = int64(math.Pow(float64(1024), float64(i))) * int64(baseVar)
+				return int64(bytesSize), nil
 			}
 		}
 	}
 
 	if strings.HasSuffix(size, "B") {
 
-		dataBytes := strings.TrimPrefix(size, "B")
+		dataBytes := strings.TrimSuffix(size, "B")
 		baseVar, err := strconv.Atoi(dataBytes)
 		if err != nil {
 			return 0, err
