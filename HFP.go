@@ -366,7 +366,7 @@ func copyHEPbufftoFile(inbytes []byte, file string) (int64, error) {
 			log.Println("||-->", logsymbols.Error, "couldn't retrive stats from buffer file error", err)
 			return 0, err
 		} else {
-			if MaxBufferSizeBytes >= fi.Size() {
+			if fi.Size() >= MaxBufferSizeBytes {
 				log.Println("||-->", logsymbols.Error, "Buffer size has been excited error: Maxsize: ", MaxBufferSizeBytes, " vs CurrentSize: ", fi.Size())
 				return 0, fmt.Errorf("buffer size has been excited: %d", fi.Size())
 			}
