@@ -5,8 +5,10 @@ import (
 	"encoding/binary"
 	"fmt"
 	"log"
+	"math"
 	"net"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -397,4 +399,42 @@ func MakeHEPPing() (hepMsg []byte, err error) {
 	hepMsg, err = hep.Marshal()
 
 	return hepMsg, err
+}
+
+func Human2FileSize(size string) (int64, error) {
+
+	suffixes := [5]string{"B", "KB", "MB", "GB", "TB"} // Intialized with values
+	var bytesSize int64
+
+	for i, suffix := range suffixes {
+
+		if i == 0 {
+			continue
+		}
+
+		if strings.HasSuffix(size, suffix) {
+			dataBytes, ok := strings.CutSuffix(size, suffix)
+			if ok {
+				baseVar, err := strconv.Atoi(dataBytes)
+				if err != nil {
+					return 0, err
+				} else {
+					bytesSize = int64(math.Pow(float64(baseVar), float64(i)))
+					return bytesSize, nil
+				}
+			}
+		}
+	}
+
+	dataBytes, ok := strings.CutSuffix(size, "B")
+	if ok {
+		baseVar, err := strconv.Atoi(dataBytes)
+		if err != nil {
+			return 0, err
+		} else {
+			return int64(baseVar), nil
+		}
+	}
+
+	return bytesSize, fmt.Errorf("not found a valid suffix")
 }

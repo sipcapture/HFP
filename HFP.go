@@ -14,7 +14,7 @@ import (
 	"github.com/guumaster/logsymbols"
 )
 
-const AppVersion = "0.55.4"
+const AppVersion = "0.55.5"
 
 var localAddr *string = flag.String("l", ":9060", "Local HEP listening address")
 var remoteAddr *string = flag.String("r", "192.168.2.2:9060", "Remote HEP address")
@@ -25,12 +25,14 @@ var IPfilter *string = flag.String("ipf", "", "IP filter address from HEP SRC or
 var IPfilterAction *string = flag.String("ipfa", "pass", "IP filter Action. Options are pass or reject")
 var Debug *string = flag.String("d", "off", "Debug options are off or on")
 var PrometheusPort *string = flag.String("prom", "8090", "Prometheus metrics port")
+var maxBufferSize *string = flag.String("maxbuffer", "0", "max buffer size, can be B, MB, GB, TB. By default - unlimited")
 
 var (
-	AppLogger   *log.Logger
-	filterIPs   []string
-	HFPlog      string = "HFP.log"
-	HEPsavefile string = "HEP/HEP-saved.arch"
+	AppLogger          *log.Logger
+	filterIPs          []string
+	HFPlog             string = "HFP.log"
+	HEPsavefile        string = "HEP/HEP-saved.arch"
+	MaxBufferSizeBytes int64  = 0
 )
 
 func initLoopbackConn(wg *sync.WaitGroup) {
@@ -78,7 +80,7 @@ func connectToHEPBackend(dst, proto string) net.Conn {
 			time.Sleep(time.Second * 5) // wait for 5 seconds before reconnecting
 
 		} else {
-			log.Println("Connected to server successfully ", conn)
+			log.Println("Connected to server successfully")
 			connectionStatus.Set(1)
 			SendPingHEPPacket(conn)
 			copyHEPFileOut(conn)
@@ -357,6 +359,20 @@ func copyHEPbufftoFile(inbytes []byte, file string) (int64, error) {
 	}
 
 	defer destination.Close()
+
+	if MaxBufferSizeBytes > 0 {
+		fi, err := destination.Stat()
+		if err != nil {
+			log.Println("||-->", logsymbols.Error, "couldn't retrive stats from buffer file error", err)
+			return 0, err
+		} else {
+			if MaxBufferSizeBytes >= fi.Size() {
+				log.Println("||-->", logsymbols.Error, "Buffer size has been excited error: Maxsize: ", MaxBufferSizeBytes, " vs CurrentSize: ", fi.Size())
+				return 0, fmt.Errorf("buffer size has been excited: %d", fi.Size())
+			}
+		}
+	}
+
 	nBytes, err := destination.Write(inbytes)
 
 	if err != nil {
@@ -452,6 +468,16 @@ func main() {
 		log.Println(logsymbols.Error, err)
 	}
 	fmt.Println(logsymbols.Info, "Saved HEP file is ", fi.Size(), "bytes")
+
+	if *maxBufferSize != "0" && *maxBufferSize != "" {
+		MaxBufferSizeBytes, err = Human2FileSize(*maxBufferSize)
+		if err != nil {
+			fmt.Println(logsymbols.Error, "|| couldn't convert buffer size to bytes", err)
+			os.Exit(1)
+		} else {
+			fmt.Println(logsymbols.Info, "Maximum HEP file size is ", MaxBufferSizeBytes, "bytes. You provided: ", *maxBufferSize)
+		}
+	}
 
 	fmt.Printf("Listening for HEP on: %v\nProxying HEP to: %v\nProto HEP: %v\nIPFilter: %v\nIPFilterAction: %v\nPrometheus metrics: %v\n\n", *localAddr, *remoteAddr, *remoteProto, *IPfilter, *IPfilterAction, *PrometheusPort)
 	AppLogger.Println("Listening for HEP on:", *localAddr, "\n", "Proxying HEP to:", *remoteAddr, "\n", "Proto HEP:", *remoteProto, "\n", "IPFilter:", *IPfilter, "\n", "IPFilterAction:", *IPfilterAction, "\n", "Prometheus metrics:", *PrometheusPort)
