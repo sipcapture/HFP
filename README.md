@@ -14,7 +14,7 @@ From version 0.2 two modes of operation are supported.
 
 ### Usage
 ```
-./HFP -l :9060 -r (HEP TCP server we want to reliably proxy HEP)
+./hfp -l :9060 -r (HEP TCP server we want to reliably proxy HEP)
 
 Options:
   -l string
