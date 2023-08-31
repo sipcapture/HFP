@@ -18,3 +18,4 @@ contents:
     dst: /usr/local/bin/hfp
   - src: hfp.service
     dst: /etc/systemd/system/hfp.service
+    type: config
