@@ -118,7 +118,7 @@ func (h *HEP) parse(packet []byte) error {
 
 	h.Timestamp = time.Unix(int64(h.Tsec), int64(h.Tmsec*1000))
 	if h.Tsec == 0 && h.Tmsec == 0 {
-		log.Println("Debug> got null timestamp from nodeID %d", h.NodeID)
+		log.Println("Debug> got null timestamp from nodeID: ", h.NodeID)
 		h.Timestamp = time.Now()
 	}
 
@@ -413,21 +413,20 @@ func Human2FileSize(size string) (int64, error) {
 		}
 
 		if strings.HasSuffix(size, suffix) {
-			dataBytes, ok := strings.CutSuffix(size, suffix)
-			if ok {
-				baseVar, err := strconv.Atoi(dataBytes)
-				if err != nil {
-					return 0, err
-				} else {
-					bytesSize = int64(math.Pow(float64(baseVar), float64(i)))
-					return bytesSize, nil
-				}
+			dataBytes := strings.TrimPrefix(size, suffix)
+			baseVar, err := strconv.Atoi(dataBytes)
+			if err != nil {
+				return 0, err
+			} else {
+				bytesSize = int64(math.Pow(float64(baseVar), float64(i)))
+				return bytesSize, nil
 			}
 		}
 	}
 
-	dataBytes, ok := strings.CutSuffix(size, "B")
-	if ok {
+	if strings.HasSuffix(size, "B") {
+
+		dataBytes := strings.TrimPrefix(size, "B")
 		baseVar, err := strconv.Atoi(dataBytes)
 		if err != nil {
 			return 0, err
