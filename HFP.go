@@ -81,8 +81,9 @@ func connectToHEPBackend(dst, proto string) net.Conn {
 
 		} else {
 			log.Println("Connected to server successfully")
-			connectionStatus.Set(1)
 			SendPingHEPPacket(conn)
+			time.Sleep(time.Second * 1)
+			connectionStatus.Set(1)
 			copyHEPFileOut(conn)
 			return conn
 		}
@@ -173,8 +174,9 @@ func handleConnection(clientConn net.Conn, destAddr, destProto string) {
 									continue
 								} else {
 									log.Println("||--> Connected to ", destAddr, ", proto:", destProto)
-									connectionStatus.Set(1)
 									SendPingHEPPacket(destConn)
+									time.Sleep(time.Second * 1)
+									connectionStatus.Set(1)
 									copyHEPFileOut(destConn)
 								}
 								break
@@ -247,8 +249,10 @@ func handleConnection(clientConn net.Conn, destAddr, destProto string) {
 								time.Sleep(time.Second * 5) // wait for 5 seconds before reconnecting
 								continue
 							} else {
-								connectionStatus.Set(1)
+								log.Println("||--> Diallout to ", destAddr, ", proto:", destProto)
 								SendPingHEPPacket(destConn)
+								time.Sleep(time.Second * 1)
+								connectionStatus.Set(1)
 								copyHEPFileOut(destConn)
 							}
 							break
@@ -286,8 +290,10 @@ func handleConnection(clientConn net.Conn, destAddr, destProto string) {
 							time.Sleep(time.Second * 5) // wait for 5 seconds before reconnecting
 							continue
 						} else {
-							connectionStatus.Set(1)
+							log.Println("||--> Diallout after reconnect to ", destAddr, ", proto:", destProto)
 							SendPingHEPPacket(destConn)
+							time.Sleep(time.Second * 1)
+							connectionStatus.Set(1)
 							copyHEPFileOut(destConn)
 						}
 						break
