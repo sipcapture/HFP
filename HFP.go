@@ -14,7 +14,7 @@ import (
 	"github.com/guumaster/logsymbols"
 )
 
-const AppVersion = "0.55.7"
+const AppVersion = "0.55.8"
 
 var localAddr *string = flag.String("l", ":9060", "Local HEP listening address")
 var remoteAddr *string = flag.String("r", "192.168.2.2:9060", "Remote HEP address")
@@ -121,7 +121,7 @@ func handleConnection(clientConn net.Conn, destAddr, destProto string) {
 		//n, err := reader.Read(buf)
 		n, err := clientConn.Read(buf)
 		if err != nil {
-			log.Println(err)
+			log.Println("Client connection closed:", err)
 			return
 		}
 
@@ -172,6 +172,7 @@ func handleConnection(clientConn net.Conn, destAddr, destProto string) {
 									time.Sleep(time.Second * 5) // wait for 5 seconds before reconnecting
 									continue
 								} else {
+									log.Println("||--> Connected to ", destAddr, ", proto:", destProto)
 									connectionStatus.Set(1)
 									SendPingHEPPacket(destConn)
 									copyHEPFileOut(destConn)
@@ -442,7 +443,7 @@ func main() {
 
 	errmkdir := os.Mkdir("HEP", 0755)
 	if errmkdir != nil {
-		log.Println(errmkdir)
+		log.Println("Mkdir error:", errmkdir)
 	}
 
 	if _, errhfexist := os.Stat(HEPsavefile); errhfexist != nil {
@@ -491,7 +492,7 @@ func main() {
 
 	addr, err := net.ResolveTCPAddr("tcp", *localAddr)
 	if err != nil {
-		log.Println(logsymbols.Error, err)
+		log.Println(logsymbols.Error, "IP ResolvTCP: ", err)
 		return
 	}
 	listener, err := net.ListenTCP("tcp4", addr)
@@ -517,7 +518,7 @@ func main() {
 		connectedClients.Inc()
 
 		if err != nil {
-			log.Println(logsymbols.Error, err)
+			log.Println(logsymbols.Error, "Accept connection error:", err)
 			return
 		}
 
