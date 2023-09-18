@@ -14,7 +14,7 @@ import (
 	"github.com/guumaster/logsymbols"
 )
 
-const AppVersion = "0.55.8"
+const AppVersion = "0.55.9"
 
 var localAddr *string = flag.String("l", ":9060", "Local HEP listening address")
 var remoteAddr *string = flag.String("r", "192.168.2.2:9060", "Remote HEP address")
@@ -349,9 +349,8 @@ func handleConnection(clientConn net.Conn, destAddr, destProto string) {
 				if ((hepPkt.SrcIP == string(ipf) || hepPkt.DstIP == string(ipf) || string(buf[:n]) == "HELLO HFP") && *IPfilterAction == "pass") || ((hepPkt.SrcIP != string(ipf) || hepPkt.DstIP != string(ipf)) && *IPfilterAction == "reject") {
 					copyHEPbufftoFile(buf[:n], HEPsavefile)
 				} else {
-					log.Println("Not logging filtered HEP traffic")
+					log.Println("Not logging filtered HEP traffic: ", ipf, ", Len: ", len(filterIPs))
 				}
-
 			}
 		}
 
@@ -445,7 +444,10 @@ func main() {
 		os.Exit(0)
 	}
 
-	filterIPs = strings.Split(*IPfilter, ",")
+	if *IPfilter != "" {
+		filterIPs = strings.Split(*IPfilter, ",")
+		log.Println("Generated filtersIP array", *IPfilter, ", LEN: ", len(filterIPs))
+	}
 
 	errmkdir := os.Mkdir("HEP", 0755)
 	if errmkdir != nil {
