@@ -14,7 +14,7 @@ import (
 	"github.com/guumaster/logsymbols"
 )
 
-const AppVersion = "0.55.10"
+const AppVersion = "0.55.12"
 
 var localAddr *string = flag.String("l", ":9060", "Local HEP listening address")
 var remoteAddr *string = flag.String("r", "192.168.2.2:9060", "Remote HEP address")
@@ -127,6 +127,8 @@ func handleConnection(clientConn net.Conn, destAddr, destProto string) {
 		destConn = connectToHEPBackend(destAddr, destProto)
 	}()
 
+	defer clientConn.Close()
+
 	//reader := bufio.NewReader(clientConn)
 	for {
 		//n, err := reader.Read(buf)
@@ -144,7 +146,6 @@ func handleConnection(clientConn net.Conn, destAddr, destProto string) {
 		clientLastMetricTimestamp.SetToCurrentTime()
 
 		if destConn != nil {
-
 			//
 			if *IPfilter != "" && *IPfilterAction == "pass" {
 				hepPkt, err := DecodeHEP(buf[:n])
@@ -210,7 +211,6 @@ func handleConnection(clientConn net.Conn, destAddr, destProto string) {
 								}
 							}
 							accepted = true
-
 						}
 					}
 				}
@@ -295,7 +295,7 @@ func handleConnection(clientConn net.Conn, destAddr, destProto string) {
 
 			} else {
 				//Send HEP out to backend
-				_, err_HEPout := destConn.Write(buf[:n])
+				bSend, err_HEPout := destConn.Write(buf[:n])
 				if err_HEPout != nil {
 					log.Println("||-->", logsymbols.Error, " Sending HEP OUT error:", err_HEPout)
 					// rb := bytes.NewReader(buf[:data])
@@ -333,14 +333,12 @@ func handleConnection(clientConn net.Conn, destAddr, destProto string) {
 						break
 					}
 					continue
-
-					//	return
 				} else {
 					if *Debug == "on" {
 						if string(buf[:n]) == "HELLO HFP" {
 							log.Println("||-->", logsymbols.Success, " Sending init HELLO HFP successful without filters to", destConn.RemoteAddr())
 						} else {
-							log.Println("||-->", logsymbols.Success, " Sending HEP OUT successful without filters to", destConn.RemoteAddr())
+							log.Println("||-->", logsymbols.Success, " Sending HEP OUT successful without filters to ", destConn.RemoteAddr(), ", sendout: ", bSend)
 						}
 					}
 				}
@@ -387,7 +385,6 @@ func handleConnection(clientConn net.Conn, destAddr, destProto string) {
 				}
 			}
 		}
-
 	}
 }
 
@@ -564,9 +561,9 @@ func main() {
 			return
 		}
 
-		for i := 1; i <= 2; i++ {
-			go handleConnection(clientConn, *remoteAddr, *remoteProto)
-		}
+		//for i := 1; i <= 2; i++ {
+		go handleConnection(clientConn, *remoteAddr, *remoteProto)
+		//}
 	}
 
 }
