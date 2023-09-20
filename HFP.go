@@ -14,7 +14,7 @@ import (
 	"github.com/guumaster/logsymbols"
 )
 
-const AppVersion = "0.55.9"
+const AppVersion = "0.55.10"
 
 var localAddr *string = flag.String("l", ":9060", "Local HEP listening address")
 var remoteAddr *string = flag.String("r", "192.168.2.2:9060", "Remote HEP address")
@@ -25,6 +25,8 @@ var IPfilter *string = flag.String("ipf", "", "IP filter address from HEP SRC or
 var IPfilterAction *string = flag.String("ipfa", "pass", "IP filter Action. Options are pass or reject")
 var Debug *string = flag.String("d", "off", "Debug options are off or on")
 var PrometheusPort *string = flag.String("prom", "8090", "Prometheus metrics port")
+var KeepAlive *uint = flag.Uint("keepalive", 5, "keep alive internal - 5 seconds by default. 0 - disables")
+var noDelayTCP *bool = flag.Bool("nodelay", true, "no delay in tcp connection. True by default")
 var maxBufferSize *string = flag.String("maxbuffer", "0", "max buffer size, can be B, MB, GB, TB. By default - unlimited")
 
 var (
@@ -73,6 +75,14 @@ func connectToHEPBackend(dst, proto string) net.Conn {
 		} else {
 			conn, err = net.Dial("tcp", dst)
 		}
+
+		//Keep Alive
+		if *KeepAlive > 0 {
+			conn.(*net.TCPConn).SetKeepAlive(true)
+			conn.(*net.TCPConn).SetKeepAlivePeriod(time.Second * time.Duration(*KeepAlive))
+		}
+		//Nodelay
+		conn.(*net.TCPConn).SetNoDelay(*noDelayTCP)
 
 		if err != nil {
 			log.Println("Unable to connect to server: ", err)
@@ -167,6 +177,14 @@ func handleConnection(clientConn net.Conn, destAddr, destProto string) {
 									destConn, err = net.Dial("tcp", destAddr)
 								}
 
+								//Keep Alive
+								if *KeepAlive > 0 {
+									destConn.(*net.TCPConn).SetKeepAlive(true)
+									destConn.(*net.TCPConn).SetKeepAlivePeriod(time.Second * time.Duration(*KeepAlive))
+								}
+								//Nodelay
+								destConn.(*net.TCPConn).SetNoDelay(*noDelayTCP)
+
 								if err != nil {
 									log.Println("||-->", logsymbols.Error, " Dial OUT reconnect failure - retrying", err)
 									AppLogger.Println("||-->", logsymbols.Error, " Dial OUT reconnect failure - retrying")
@@ -243,6 +261,14 @@ func handleConnection(clientConn net.Conn, destAddr, destProto string) {
 								destConn, err = net.Dial("tcp", destAddr)
 							}
 
+							//Keep Alive
+							if *KeepAlive > 0 {
+								destConn.(*net.TCPConn).SetKeepAlive(true)
+								destConn.(*net.TCPConn).SetKeepAlivePeriod(time.Second * time.Duration(*KeepAlive))
+							}
+							//Nodelay
+							destConn.(*net.TCPConn).SetNoDelay(*noDelayTCP)
+
 							if err != nil {
 								log.Println("||-->", logsymbols.Error, " Dial OUT reconnect failure - retrying", err)
 								AppLogger.Println("||-->", logsymbols.Error, " Dial OUT reconnect failure - retrying")
@@ -283,6 +309,14 @@ func handleConnection(clientConn net.Conn, destAddr, destProto string) {
 						} else {
 							destConn, err = net.Dial("tcp", destAddr)
 						}
+
+						//Keep Alive
+						if *KeepAlive > 0 {
+							destConn.(*net.TCPConn).SetKeepAlive(true)
+							destConn.(*net.TCPConn).SetKeepAlivePeriod(time.Second * time.Duration(*KeepAlive))
+						}
+						//Nodelay
+						destConn.(*net.TCPConn).SetNoDelay(*noDelayTCP)
 
 						if err != nil {
 							log.Println("||-->", logsymbols.Error, " Dial OUT reconnect failure - retrying", err)
