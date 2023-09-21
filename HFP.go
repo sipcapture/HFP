@@ -15,7 +15,7 @@ import (
 	"github.com/guumaster/logsymbols"
 )
 
-const AppVersion = "0.55.13"
+const AppVersion = "0.55.14"
 
 var localAddr *string = flag.String("l", ":9060", "Local HEP listening address")
 var remoteAddr *string = flag.String("r", "192.168.2.2:9060", "Remote HEP address")
@@ -98,13 +98,21 @@ func connectToHEPBackend(dst, proto string) net.Conn {
 
 		} else {
 			log.Println("Connected to server successfully")
+
+			var tcpCon *net.TCPConn
+			if proto == "tls" {
+				tcpCon = conn.(*tls.Conn).NetConn().(*net.TCPConn)
+			} else {
+				tcpCon = conn.(*net.TCPConn)
+			}
 			//Keep Alive
 			if *KeepAlive > 0 {
-				conn.(*net.TCPConn).SetKeepAlive(true)
-				conn.(*net.TCPConn).SetKeepAlivePeriod(time.Second * time.Duration(*KeepAlive))
+				tcpCon.SetKeepAlive(true)
+				tcpCon.SetKeepAlivePeriod(time.Second * time.Duration(*KeepAlive))
+
 			}
 			//Nodelay
-			conn.(*net.TCPConn).SetNoDelay(*noDelayTCP)
+			tcpCon.SetNoDelay(*noDelayTCP)
 
 			SendPingHEPPacket(conn)
 			time.Sleep(time.Second * 1)
@@ -207,12 +215,20 @@ func handleConnection(clientConn net.Conn, destAddr, destProto string) {
 								} else {
 									log.Println("||--> Connected to ", destAddr, ", proto:", destProto)
 									//Keep Alive
+									var tcpCon *net.TCPConn
+									if destProto == "tls" {
+										tcpCon = destConn.(*tls.Conn).NetConn().(*net.TCPConn)
+									} else {
+										tcpCon = destConn.(*net.TCPConn)
+									}
+									//Keep Alive
 									if *KeepAlive > 0 {
-										destConn.(*net.TCPConn).SetKeepAlive(true)
-										destConn.(*net.TCPConn).SetKeepAlivePeriod(time.Second * time.Duration(*KeepAlive))
+										tcpCon.SetKeepAlive(true)
+										tcpCon.SetKeepAlivePeriod(time.Second * time.Duration(*KeepAlive))
+
 									}
 									//Nodelay
-									destConn.(*net.TCPConn).SetNoDelay(*noDelayTCP)
+									tcpCon.SetNoDelay(*noDelayTCP)
 
 									SendPingHEPPacket(destConn)
 									time.Sleep(time.Second * 1)
@@ -291,12 +307,20 @@ func handleConnection(clientConn net.Conn, destAddr, destProto string) {
 								log.Println("||--> Diallout to ", destAddr, ", proto:", destProto)
 
 								//Keep Alive
+								var tcpCon *net.TCPConn
+								if destProto == "tls" {
+									tcpCon = destConn.(*tls.Conn).NetConn().(*net.TCPConn)
+								} else {
+									tcpCon = destConn.(*net.TCPConn)
+								}
+								//Keep Alive
 								if *KeepAlive > 0 {
-									destConn.(*net.TCPConn).SetKeepAlive(true)
-									destConn.(*net.TCPConn).SetKeepAlivePeriod(time.Second * time.Duration(*KeepAlive))
+									tcpCon.SetKeepAlive(true)
+									tcpCon.SetKeepAlivePeriod(time.Second * time.Duration(*KeepAlive))
+
 								}
 								//Nodelay
-								destConn.(*net.TCPConn).SetNoDelay(*noDelayTCP)
+								tcpCon.SetNoDelay(*noDelayTCP)
 
 								SendPingHEPPacket(destConn)
 								time.Sleep(time.Second * 1)
@@ -341,12 +365,20 @@ func handleConnection(clientConn net.Conn, destAddr, destProto string) {
 							log.Println("||--> Diallout after reconnect to ", destAddr, ", proto:", destProto)
 
 							//Keep Alive
+							var tcpCon *net.TCPConn
+							if destProto == "tls" {
+								tcpCon = destConn.(*tls.Conn).NetConn().(*net.TCPConn)
+							} else {
+								tcpCon = destConn.(*net.TCPConn)
+							}
+							//Keep Alive
 							if *KeepAlive > 0 {
-								destConn.(*net.TCPConn).SetKeepAlive(true)
-								destConn.(*net.TCPConn).SetKeepAlivePeriod(time.Second * time.Duration(*KeepAlive))
+								tcpCon.SetKeepAlive(true)
+								tcpCon.SetKeepAlivePeriod(time.Second * time.Duration(*KeepAlive))
+
 							}
 							//Nodelay
-							destConn.(*net.TCPConn).SetNoDelay(*noDelayTCP)
+							tcpCon.SetNoDelay(*noDelayTCP)
 
 							SendPingHEPPacket(destConn)
 							time.Sleep(time.Second * 1)
