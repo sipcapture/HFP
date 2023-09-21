@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -14,7 +15,7 @@ import (
 	"github.com/guumaster/logsymbols"
 )
 
-const AppVersion = "0.55.12"
+const AppVersion = "0.55.13"
 
 var localAddr *string = flag.String("l", ":9060", "Local HEP listening address")
 var remoteAddr *string = flag.String("r", "192.168.2.2:9060", "Remote HEP address")
@@ -38,6 +39,13 @@ var (
 )
 
 func initLoopbackConn(wg *sync.WaitGroup) {
+
+	defer func() {
+		if r := recover(); r != nil {
+			log.Println(fmt.Printf("initLoopbackConn: %v,\n%s", r, debug.Stack()))
+			return
+		}
+	}()
 
 	//Connect loopback in
 	outnet, err := net.Dial("tcp4", *localAddr)
@@ -65,6 +73,13 @@ func initLoopbackConn(wg *sync.WaitGroup) {
 
 func connectToHEPBackend(dst, proto string) net.Conn {
 
+	defer func() {
+		if r := recover(); r != nil {
+			log.Println(fmt.Printf("Panic: %v,\n%s", r, debug.Stack()))
+			return
+		}
+	}()
+
 	for {
 
 		var conn net.Conn
@@ -76,14 +91,6 @@ func connectToHEPBackend(dst, proto string) net.Conn {
 			conn, err = net.Dial("tcp", dst)
 		}
 
-		//Keep Alive
-		if *KeepAlive > 0 {
-			conn.(*net.TCPConn).SetKeepAlive(true)
-			conn.(*net.TCPConn).SetKeepAlivePeriod(time.Second * time.Duration(*KeepAlive))
-		}
-		//Nodelay
-		conn.(*net.TCPConn).SetNoDelay(*noDelayTCP)
-
 		if err != nil {
 			log.Println("Unable to connect to server: ", err)
 			connectionStatus.Set(0)
@@ -91,19 +98,33 @@ func connectToHEPBackend(dst, proto string) net.Conn {
 
 		} else {
 			log.Println("Connected to server successfully")
+			//Keep Alive
+			if *KeepAlive > 0 {
+				conn.(*net.TCPConn).SetKeepAlive(true)
+				conn.(*net.TCPConn).SetKeepAlivePeriod(time.Second * time.Duration(*KeepAlive))
+			}
+			//Nodelay
+			conn.(*net.TCPConn).SetNoDelay(*noDelayTCP)
+
 			SendPingHEPPacket(conn)
 			time.Sleep(time.Second * 1)
 			connectionStatus.Set(1)
 			copyHEPFileOut(conn)
 			return conn
 		}
-
 	}
 }
 
 func handleConnection(clientConn net.Conn, destAddr, destProto string) {
 	var destConn net.Conn
 	//var err error
+
+	defer func() {
+		if r := recover(); r != nil {
+			log.Println(fmt.Printf("Handle connection panic: %v,\n%s", r, debug.Stack()))
+			return
+		}
+	}()
 
 	// use a buffer to transfer data between connections
 	buf := make([]byte, 65535)
@@ -178,14 +199,6 @@ func handleConnection(clientConn net.Conn, destAddr, destProto string) {
 									destConn, err = net.Dial("tcp", destAddr)
 								}
 
-								//Keep Alive
-								if *KeepAlive > 0 {
-									destConn.(*net.TCPConn).SetKeepAlive(true)
-									destConn.(*net.TCPConn).SetKeepAlivePeriod(time.Second * time.Duration(*KeepAlive))
-								}
-								//Nodelay
-								destConn.(*net.TCPConn).SetNoDelay(*noDelayTCP)
-
 								if err != nil {
 									log.Println("||-->", logsymbols.Error, " Dial OUT reconnect failure - retrying", err)
 									AppLogger.Println("||-->", logsymbols.Error, " Dial OUT reconnect failure - retrying")
@@ -193,6 +206,14 @@ func handleConnection(clientConn net.Conn, destAddr, destProto string) {
 									continue
 								} else {
 									log.Println("||--> Connected to ", destAddr, ", proto:", destProto)
+									//Keep Alive
+									if *KeepAlive > 0 {
+										destConn.(*net.TCPConn).SetKeepAlive(true)
+										destConn.(*net.TCPConn).SetKeepAlivePeriod(time.Second * time.Duration(*KeepAlive))
+									}
+									//Nodelay
+									destConn.(*net.TCPConn).SetNoDelay(*noDelayTCP)
+
 									SendPingHEPPacket(destConn)
 									time.Sleep(time.Second * 1)
 									connectionStatus.Set(1)
@@ -261,14 +282,6 @@ func handleConnection(clientConn net.Conn, destAddr, destProto string) {
 								destConn, err = net.Dial("tcp", destAddr)
 							}
 
-							//Keep Alive
-							if *KeepAlive > 0 {
-								destConn.(*net.TCPConn).SetKeepAlive(true)
-								destConn.(*net.TCPConn).SetKeepAlivePeriod(time.Second * time.Duration(*KeepAlive))
-							}
-							//Nodelay
-							destConn.(*net.TCPConn).SetNoDelay(*noDelayTCP)
-
 							if err != nil {
 								log.Println("||-->", logsymbols.Error, " Dial OUT reconnect failure - retrying", err)
 								AppLogger.Println("||-->", logsymbols.Error, " Dial OUT reconnect failure - retrying")
@@ -276,6 +289,15 @@ func handleConnection(clientConn net.Conn, destAddr, destProto string) {
 								continue
 							} else {
 								log.Println("||--> Diallout to ", destAddr, ", proto:", destProto)
+
+								//Keep Alive
+								if *KeepAlive > 0 {
+									destConn.(*net.TCPConn).SetKeepAlive(true)
+									destConn.(*net.TCPConn).SetKeepAlivePeriod(time.Second * time.Duration(*KeepAlive))
+								}
+								//Nodelay
+								destConn.(*net.TCPConn).SetNoDelay(*noDelayTCP)
+
 								SendPingHEPPacket(destConn)
 								time.Sleep(time.Second * 1)
 								connectionStatus.Set(1)
@@ -310,14 +332,6 @@ func handleConnection(clientConn net.Conn, destAddr, destProto string) {
 							destConn, err = net.Dial("tcp", destAddr)
 						}
 
-						//Keep Alive
-						if *KeepAlive > 0 {
-							destConn.(*net.TCPConn).SetKeepAlive(true)
-							destConn.(*net.TCPConn).SetKeepAlivePeriod(time.Second * time.Duration(*KeepAlive))
-						}
-						//Nodelay
-						destConn.(*net.TCPConn).SetNoDelay(*noDelayTCP)
-
 						if err != nil {
 							log.Println("||-->", logsymbols.Error, " Dial OUT reconnect failure - retrying", err)
 							AppLogger.Println("||-->", logsymbols.Error, " Dial OUT reconnect failure - retrying")
@@ -325,6 +339,15 @@ func handleConnection(clientConn net.Conn, destAddr, destProto string) {
 							continue
 						} else {
 							log.Println("||--> Diallout after reconnect to ", destAddr, ", proto:", destProto)
+
+							//Keep Alive
+							if *KeepAlive > 0 {
+								destConn.(*net.TCPConn).SetKeepAlive(true)
+								destConn.(*net.TCPConn).SetKeepAlivePeriod(time.Second * time.Duration(*KeepAlive))
+							}
+							//Nodelay
+							destConn.(*net.TCPConn).SetNoDelay(*noDelayTCP)
+
 							SendPingHEPPacket(destConn)
 							time.Sleep(time.Second * 1)
 							connectionStatus.Set(1)
@@ -390,6 +413,13 @@ func handleConnection(clientConn net.Conn, destAddr, destProto string) {
 
 func copyHEPbufftoFile(inbytes []byte, file string) (int64, error) {
 
+	defer func() {
+		if r := recover(); r != nil {
+			log.Println(fmt.Printf("copy buffer to panic: %v,\n%s", r, debug.Stack()))
+			return
+		}
+	}()
+
 	destination, err := os.OpenFile(file, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0666)
 	if err != nil {
 		fmt.Println("Open HEP file error", err)
@@ -430,6 +460,13 @@ func copyHEPbufftoFile(inbytes []byte, file string) (int64, error) {
 
 func copyHEPFileOut(outnet net.Conn) (int, error) {
 
+	defer func() {
+		if r := recover(); r != nil {
+			log.Println(fmt.Printf("copy hep file out panic: %v,\n%s", r, debug.Stack()))
+			return
+		}
+	}()
+
 	HEPFileData, HEPFileDataerr := os.ReadFile(HEPsavefile)
 	if HEPFileDataerr != nil {
 		fmt.Println("Read HEP file error", HEPFileDataerr)
@@ -466,6 +503,13 @@ func main() {
 
 	var wg sync.WaitGroup
 	logsymbols.ForceColors()
+
+	defer func() {
+		if r := recover(); r != nil {
+			log.Println(fmt.Printf("main panic: %v,\n%s", r, debug.Stack()))
+			return
+		}
+	}()
 
 	version := flag.Bool("v", false, "Prints current HFP version")
 	flag.Parse()
@@ -569,6 +613,13 @@ func main() {
 }
 
 func SendPingHEPPacket(conn net.Conn) {
+
+	defer func() {
+		if r := recover(); r != nil {
+			log.Println(fmt.Printf("hep ping panic: %v,\n%s", r, debug.Stack()))
+			return
+		}
+	}()
 
 	if *HepNodePW == "" {
 		return
