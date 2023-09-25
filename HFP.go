@@ -13,9 +13,10 @@ import (
 	"time"
 
 	"github.com/guumaster/logsymbols"
+	"github.com/ivlovric/HFP/queue"
 )
 
-const AppVersion = "0.55.14"
+const AppVersion = "0.56.1"
 
 var localAddr *string = flag.String("l", ":9060", "Local HEP listening address")
 var remoteAddr *string = flag.String("r", "192.168.2.2:9060", "Remote HEP address")
@@ -26,7 +27,8 @@ var IPfilter *string = flag.String("ipf", "", "IP filter address from HEP SRC or
 var IPfilterAction *string = flag.String("ipfa", "pass", "IP filter Action. Options are pass or reject")
 var Debug *string = flag.String("d", "off", "Debug options are off or on")
 var PrometheusPort *string = flag.String("prom", "8090", "Prometheus metrics port")
-var KeepAlive *uint = flag.Uint("keepalive", 5, "keep alive internal - 5 seconds by default. 0 - disables")
+var KeepAlive *uint = flag.Uint("keepalive", 5, "keep alive internal - 5 seconds by default. 0 - disable")
+var ReconnectCheck *uint = flag.Uint("reconnect", 5, "reconnect after 5 packets. 0 - disable")
 var noDelayTCP *bool = flag.Bool("nodelay", true, "no delay in tcp connection. True by default")
 var maxBufferSize *string = flag.String("maxbuffer", "0", "max buffer size, can be B, MB, GB, TB. By default - unlimited")
 
@@ -36,42 +38,13 @@ var (
 	HFPlog             string = "HFP.log"
 	HEPsavefile        string = "HEP/HEP-saved.arch"
 	MaxBufferSizeBytes int64  = 0
+	productsQueue      *queue.Queue
+	hepConnect         net.Conn
+	reconnectCount     uint
 )
 
-func initLoopbackConn(wg *sync.WaitGroup) {
-
-	defer func() {
-		if r := recover(); r != nil {
-			log.Println(fmt.Printf("initLoopbackConn: %v,\n%s", r, debug.Stack()))
-			return
-		}
-	}()
-
-	//Connect loopback in
-	outnet, err := net.Dial("tcp4", *localAddr)
-
-	if err != nil {
-		log.Println("c==>", logsymbols.Error, "|| INITIAL Loopback IN", err)
-		AppLogger.Println("c==>", logsymbols.Error, "|| INITIAL Loopback IN error", err)
-
-	} else {
-		_, err := outnet.Write([]byte("HELLO HFP"))
-		if err != nil {
-			log.Println("HELLO HFP c==>", logsymbols.Error, "|| Send HELLO HFP error", err)
-			AppLogger.Println("HELLO HFP c==>", logsymbols.Error, "|| Send HELLO HFP error", err)
-		} else {
-			log.Println("HELLO HFP c==>", logsymbols.Success, "|| INITIAL Dial LOOPBACK IN success")
-			AppLogger.Println("HELLO HFP c==>", logsymbols.Success, "|| INITIAL Dial LOOPBACK IN success")
-		}
-
-	}
-
-	wg.Add(1)
-	wg.Done()
-
-}
-
-func connectToHEPBackend(dst, proto string) net.Conn {
+// read messages from queue - make asynchonouse process
+func doQueueJob() {
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -80,52 +53,67 @@ func connectToHEPBackend(dst, proto string) net.Conn {
 		}
 	}()
 
-	for {
-
-		var conn net.Conn
-		var err error
-
-		if proto == "tls" {
-			conn, err = tls.Dial("tcp", dst, &tls.Config{InsecureSkipVerify: *skipVerify})
-		} else {
-			conn, err = net.Dial("tcp", dst)
-		}
-
-		if err != nil {
-			log.Println("Unable to connect to server: ", err)
-			connectionStatus.Set(0)
-			time.Sleep(time.Second * 5) // wait for 5 seconds before reconnecting
-
-		} else {
-			log.Println("Connected to server successfully")
-
-			var tcpCon *net.TCPConn
-			if proto == "tls" {
-				tcpCon = conn.(*tls.Conn).NetConn().(*net.TCPConn)
-			} else {
-				tcpCon = conn.(*net.TCPConn)
-			}
-			//Keep Alive
-			if *KeepAlive > 0 {
-				tcpCon.SetKeepAlive(true)
-				tcpCon.SetKeepAlivePeriod(time.Second * time.Duration(*KeepAlive))
-
-			}
-			//Nodelay
-			tcpCon.SetNoDelay(*noDelayTCP)
-
-			SendPingHEPPacket(conn)
-			time.Sleep(time.Second * 1)
-			connectionStatus.Set(1)
-			copyHEPFileOut(conn)
-			return conn
-		}
-	}
+	worker := queue.NewWorker(productsQueue)
+	worker.DoWork()
 }
 
-func handleConnection(clientConn net.Conn, destAddr, destProto string) {
-	var destConn net.Conn
-	//var err error
+func connectToHEPBackend() error {
+
+	defer func() {
+		if r := recover(); r != nil {
+			log.Println(fmt.Printf("Panic: %v,\n%s", r, debug.Stack()))
+			return
+		}
+	}()
+
+	if hepConnect != nil {
+		log.Println("Lets close the connection first")
+		hepConnect.Close()
+	}
+
+	dst := *remoteAddr
+	proto := *remoteProto
+
+	var err error
+
+	if proto == "tls" {
+		hepConnect, err = tls.Dial("tcp", dst, &tls.Config{InsecureSkipVerify: *skipVerify})
+	} else {
+		hepConnect, err = net.Dial("tcp", dst)
+	}
+
+	if err != nil {
+		log.Println("Unable to connect to server: ", err)
+		connectionStatus.Set(0)
+		return fmt.Errorf("couldn't connect to server: %s", err.Error())
+	} else {
+		log.Println("Connected to server successfully")
+		var tcpCon *net.TCPConn
+		if proto == "tls" {
+			tcpCon = hepConnect.(*tls.Conn).NetConn().(*net.TCPConn)
+		} else {
+			tcpCon = hepConnect.(*net.TCPConn)
+		}
+		//Keep Alive
+		if *KeepAlive > 0 {
+			tcpCon.SetKeepAlive(true)
+			tcpCon.SetKeepAlivePeriod(time.Second * time.Duration(*KeepAlive))
+		}
+		//Nodelay
+		tcpCon.SetNoDelay(*noDelayTCP)
+		SendPingHEPPacket(hepConnect)
+		time.Sleep(time.Second * 1)
+		connectionStatus.Set(1)
+
+		if _, err := copyHEPFileOut(); err != nil {
+			log.Println("||-->", logsymbols.Error, "Sending HEP from file error....:", err)
+		}
+		return nil
+	}
+
+}
+
+func handleConnection(clientConn net.Conn) {
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -137,30 +125,12 @@ func handleConnection(clientConn net.Conn, destAddr, destProto string) {
 	// use a buffer to transfer data between connections
 	buf := make([]byte, 65535)
 
-	//	for {
-	//		destConn, err = net.Dial("tcp", destAddr)
-	//		if err != nil {
-	//			log.Println("||-->", logsymbols.Error, "Dial OUT reconnect failure - retrying", err)
-	//			AppLogger.Println("||-->", logsymbols.Error, " Dial OUT reconnect failure - retrying")
-	//			copyHEPbufftoFile(buf[:n2], HEPsavefile)
-	//
-	//			//log.Println(err)
-	//			time.Sleep(time.Second * 5) // wait for 5 seconds before reconnecting
-	//			continue
-	//		}
-	//		break
-	//	}
-	//defer destConn.Close()
-
-	go func() {
-		destConn = connectToHEPBackend(destAddr, destProto)
-	}()
-
 	defer clientConn.Close()
 
 	//reader := bufio.NewReader(clientConn)
 	for {
 		//n, err := reader.Read(buf)
+
 		n, err := clientConn.Read(buf)
 		if err != nil {
 			log.Println("Client connection closed:", err)
@@ -174,253 +144,8 @@ func handleConnection(clientConn net.Conn, destAddr, destProto string) {
 		//Prometheus timestamp metric of incoming packet to detect lack of inbound HEP traffic
 		clientLastMetricTimestamp.SetToCurrentTime()
 
-		if destConn != nil {
-			//
-			if *IPfilter != "" && *IPfilterAction == "pass" {
-				hepPkt, err := DecodeHEP(buf[:n])
-				if err != nil {
-					log.Println("Error decoding HEP", err)
-				}
-
-				if *Debug == "on" {
-					//log.Println("HEP decoded ", hepPkt)
-					log.Println("HEP decoded SRC IP", hepPkt.SrcIP)
-					log.Println("HEP decoded DST IP", hepPkt.DstIP)
-				}
-
-				var accepted bool = false
-				for _, ipf := range filterIPs {
-					if hepPkt.SrcIP == string(ipf) || hepPkt.DstIP == string(ipf) || string(buf[:n]) == "HELLO HFP" {
-
-						//Send HEP out to backend
-						if _, err_HEPout := destConn.Write(buf[:n]); err_HEPout != nil {
-							log.Println("||-->", logsymbols.Error, " Sending HEP OUT error:", err_HEPout)
-							//	rb := bytes.NewReader(buf[:data])
-							connectionStatus.Set(0)
-							copyHEPbufftoFile(buf[:n], HEPsavefile)
-							accepted = true
-
-							for {
-								if destProto == "tls" {
-									destConn, err = tls.Dial("tcp", destAddr, &tls.Config{InsecureSkipVerify: *skipVerify})
-								} else {
-									destConn, err = net.Dial("tcp", destAddr)
-								}
-
-								if err != nil {
-									log.Println("||-->", logsymbols.Error, " Dial OUT reconnect failure - retrying", err)
-									AppLogger.Println("||-->", logsymbols.Error, " Dial OUT reconnect failure - retrying")
-									time.Sleep(time.Second * 5) // wait for 5 seconds before reconnecting
-									continue
-								} else {
-									log.Println("||--> Connected to ", destAddr, ", proto:", destProto)
-									//Keep Alive
-									var tcpCon *net.TCPConn
-									if destProto == "tls" {
-										tcpCon = destConn.(*tls.Conn).NetConn().(*net.TCPConn)
-									} else {
-										tcpCon = destConn.(*net.TCPConn)
-									}
-									//Keep Alive
-									if *KeepAlive > 0 {
-										tcpCon.SetKeepAlive(true)
-										tcpCon.SetKeepAlivePeriod(time.Second * time.Duration(*KeepAlive))
-
-									}
-									//Nodelay
-									tcpCon.SetNoDelay(*noDelayTCP)
-
-									SendPingHEPPacket(destConn)
-									time.Sleep(time.Second * 1)
-									connectionStatus.Set(1)
-									copyHEPFileOut(destConn)
-								}
-								break
-							}
-							continue
-
-						} else {
-							if *Debug == "on" {
-								if string(buf[:n]) == "HELLO HFP" {
-									log.Println("||--> Sending init HELLO HFP successful with filter for", string(ipf), "to", destConn.RemoteAddr())
-								} else {
-									log.Println("||--> Sending HEP OUT successful with filter for", string(ipf), "to", destConn.RemoteAddr())
-								}
-							}
-							accepted = true
-						}
-					}
-				}
-
-				if !accepted {
-					if *Debug == "on" {
-						log.Println("-->", logsymbols.Error, "|| HEP filter not matched with source or destination IP in HEP packet", hepPkt.SrcIP, "or", hepPkt.DstIP)
-					}
-				}
-
-			} else if *IPfilter != "" && *IPfilterAction == "reject" {
-				hepPkt, err := DecodeHEP(buf[:n])
-				if err != nil {
-					log.Println("Error decoding HEP", err)
-				}
-
-				if *Debug == "on" {
-					//log.Println("HEP decoded ", hepPkt)
-					log.Println("HEP decoded SRC IP", hepPkt.SrcIP)
-					log.Println("HEP decoded DST IP", hepPkt.DstIP)
-				}
-
-				var rejected bool = false
-				for _, ipf := range filterIPs {
-					if hepPkt.SrcIP == string(ipf) || hepPkt.DstIP == string(ipf) {
-						clientConn.Write([]byte("Rejecting IP"))
-						if *Debug == "on" {
-							log.Printf("-->|| Rejecting IP:%q", ipf)
-						}
-						rejected = true
-						break
-					}
-				}
-
-				if !rejected {
-					//Send HEP out to backend
-					if _, err_HEPout := destConn.Write(buf[:n]); err_HEPout != nil {
-						log.Println("||-->", logsymbols.Error, " Sending HEP OUT error:", err_HEPout)
-						//rb := bytes.NewReader(buf[:data])
-						connectionStatus.Set(0)
-						copyHEPbufftoFile(buf[:n], HEPsavefile)
-
-						for {
-
-							if destProto == "tls" {
-								destConn, err = tls.Dial("tcp", destAddr, &tls.Config{InsecureSkipVerify: *skipVerify})
-							} else {
-								destConn, err = net.Dial("tcp", destAddr)
-							}
-
-							if err != nil {
-								log.Println("||-->", logsymbols.Error, " Dial OUT reconnect failure - retrying", err)
-								AppLogger.Println("||-->", logsymbols.Error, " Dial OUT reconnect failure - retrying")
-								time.Sleep(time.Second * 5) // wait for 5 seconds before reconnecting
-								continue
-							} else {
-								log.Println("||--> Diallout to ", destAddr, ", proto:", destProto)
-
-								//Keep Alive
-								var tcpCon *net.TCPConn
-								if destProto == "tls" {
-									tcpCon = destConn.(*tls.Conn).NetConn().(*net.TCPConn)
-								} else {
-									tcpCon = destConn.(*net.TCPConn)
-								}
-								//Keep Alive
-								if *KeepAlive > 0 {
-									tcpCon.SetKeepAlive(true)
-									tcpCon.SetKeepAlivePeriod(time.Second * time.Duration(*KeepAlive))
-
-								}
-								//Nodelay
-								tcpCon.SetNoDelay(*noDelayTCP)
-
-								SendPingHEPPacket(destConn)
-								time.Sleep(time.Second * 1)
-								connectionStatus.Set(1)
-								copyHEPFileOut(destConn)
-							}
-							break
-						}
-						continue
-
-						//return
-					} else {
-						if *Debug == "on" {
-							log.Println("||-->", logsymbols.Success, " Sending HEP OUT successful with filter to", destConn.RemoteAddr())
-						}
-					}
-				}
-
-			} else {
-				//Send HEP out to backend
-				bSend, err_HEPout := destConn.Write(buf[:n])
-				if err_HEPout != nil {
-					log.Println("||-->", logsymbols.Error, " Sending HEP OUT error:", err_HEPout)
-					// rb := bytes.NewReader(buf[:data])
-					connectionStatus.Set(0)
-					copyHEPbufftoFile(buf[:n], HEPsavefile)
-
-					for {
-
-						if destProto == "tls" {
-							destConn, err = tls.Dial("tcp", destAddr, &tls.Config{InsecureSkipVerify: *skipVerify})
-						} else {
-							destConn, err = net.Dial("tcp", destAddr)
-						}
-
-						if err != nil {
-							log.Println("||-->", logsymbols.Error, " Dial OUT reconnect failure - retrying", err)
-							AppLogger.Println("||-->", logsymbols.Error, " Dial OUT reconnect failure - retrying")
-							time.Sleep(time.Second * 5) // wait for 5 seconds before reconnecting
-							continue
-						} else {
-							log.Println("||--> Diallout after reconnect to ", destAddr, ", proto:", destProto)
-
-							//Keep Alive
-							var tcpCon *net.TCPConn
-							if destProto == "tls" {
-								tcpCon = destConn.(*tls.Conn).NetConn().(*net.TCPConn)
-							} else {
-								tcpCon = destConn.(*net.TCPConn)
-							}
-							//Keep Alive
-							if *KeepAlive > 0 {
-								tcpCon.SetKeepAlive(true)
-								tcpCon.SetKeepAlivePeriod(time.Second * time.Duration(*KeepAlive))
-
-							}
-							//Nodelay
-							tcpCon.SetNoDelay(*noDelayTCP)
-
-							SendPingHEPPacket(destConn)
-							time.Sleep(time.Second * 1)
-							connectionStatus.Set(1)
-							copyHEPFileOut(destConn)
-						}
-						break
-					}
-					continue
-				} else {
-					if *Debug == "on" {
-						if string(buf[:n]) == "HELLO HFP" {
-							log.Println("||-->", logsymbols.Success, " Sending init HELLO HFP successful without filters to", destConn.RemoteAddr())
-						} else {
-							log.Println("||-->", logsymbols.Success, " Sending HEP OUT successful without filters to ", destConn.RemoteAddr(), ", sendout: ", bSend)
-						}
-					}
-				}
-			}
-
-			//
-			//_, err = destConn.Write(buf[:n])
-			//	if err != nil {
-			//		log.Println(logsymbols.Error, err)
-			//		destConn.Close()
-			//		copyHEPbufftoFile(buf[:n], HEPsavefile)
-			//		for {
-			//			destConn, err = net.Dial("tcp4", destAddr)
-			//			if err != nil {
-			//				log.Println("||-->X Dial OUT reconnect failure - retrying", err)
-			//				AppLogger.Println("||-->X Dial OUT reconnect failure - retrying")
-			//				time.Sleep(time.Second * 5) // wait for 5 seconds before reconnecting
-			//				continue
-			//			} else {
-			//				copyHEPFileOut(destConn)
-			//			}
-			//			break
-			//		}
-			//		continue
-			//	}
-		} else {
-
+		//
+		if *IPfilter != "" && *IPfilterAction == "pass" {
 			hepPkt, err := DecodeHEP(buf[:n])
 			if err != nil {
 				log.Println("Error decoding HEP", err)
@@ -432,15 +157,141 @@ func handleConnection(clientConn net.Conn, destAddr, destProto string) {
 				log.Println("HEP decoded DST IP", hepPkt.DstIP)
 			}
 
+			var accepted bool = false
 			for _, ipf := range filterIPs {
-				if ((hepPkt.SrcIP == string(ipf) || hepPkt.DstIP == string(ipf) || string(buf[:n]) == "HELLO HFP") && *IPfilterAction == "pass") || ((hepPkt.SrcIP != string(ipf) || hepPkt.DstIP != string(ipf)) && *IPfilterAction == "reject") {
-					copyHEPbufftoFile(buf[:n], HEPsavefile)
-				} else {
-					log.Println("Not logging filtered HEP traffic: ", ipf, ", Len: ", len(filterIPs))
+				if hepPkt.SrcIP == string(ipf) || hepPkt.DstIP == string(ipf) || string(buf[:n]) == "HELLO HFP" {
+
+					//Send HEP out to backend
+					hepJob := queue.Job{Type: 1, Data: buf[:n], Len: n, Action: sendHepOut}
+					productsQueue.AddJob(hepJob)
+
+					if *Debug == "on" {
+						if string(buf[:n]) == "HELLO HFP" {
+							log.Println("||--> Sending init HELLO HFP successful with filter for", string(ipf))
+						} else {
+							log.Println("||--> Sending HEP OUT successful with filter for", string(ipf))
+						}
+					}
 				}
 			}
+
+			if !accepted {
+				if *Debug == "on" {
+					log.Println("-->", logsymbols.Error, "|| HEP filter not matched with source or destination IP in HEP packet", hepPkt.SrcIP, "or", hepPkt.DstIP)
+				}
+			}
+
+		} else if *IPfilter != "" && *IPfilterAction == "reject" {
+			hepPkt, err := DecodeHEP(buf[:n])
+			if err != nil {
+				log.Println("Error decoding HEP", err)
+			}
+
+			if *Debug == "on" {
+				//log.Println("HEP decoded ", hepPkt)
+				log.Println("HEP decoded SRC IP", hepPkt.SrcIP)
+				log.Println("HEP decoded DST IP", hepPkt.DstIP)
+			}
+
+			var rejected bool = false
+			for _, ipf := range filterIPs {
+				if hepPkt.SrcIP == string(ipf) || hepPkt.DstIP == string(ipf) {
+					clientConn.Write([]byte("Rejecting IP"))
+					if *Debug == "on" {
+						log.Printf("-->|| Rejecting IP:%q", ipf)
+					}
+					rejected = true
+					break
+				}
+			}
+
+			if !rejected {
+				//Send HEP out to backend
+				hepJob := queue.Job{Type: 1, Data: buf[:n], Len: n, Action: sendHepOut}
+				productsQueue.AddJob(hepJob)
+				if *Debug == "on" {
+					log.Println("||-->", logsymbols.Success, " Sending HEP OUT successful with filter")
+				}
+			}
+
+		} else {
+
+			//Send HEP out to backend
+			hepJob := queue.Job{Type: 1, Data: buf[:n], Len: n, Action: sendHepOut}
+			productsQueue.AddJob(hepJob)
+
+			if *Debug == "on" {
+				if string(buf[:n]) == "HELLO HFP" {
+					log.Println("||-->", logsymbols.Success, " Sending init HELLO HFP successful without filters")
+				} else {
+					log.Println("||-->", logsymbols.Success, " Sending HEP OUT successful without filters")
+				}
+			}
+
 		}
 	}
+}
+
+func sendHepOut(data []byte, len int) error {
+
+	defer func() {
+		if r := recover(); r != nil {
+			log.Println(fmt.Printf("sendHepOut to panic: %v,\n%s", r, debug.Stack()))
+			return
+		}
+	}()
+
+	//If socket is nil - reconnect....
+	if hepConnect == nil {
+		if *Debug == "on" {
+			log.Println("||-->", logsymbols.Error, "socket is nil:")
+		}
+		connectionStatus.Set(0)
+		copyHEPbufftoFile(data, HEPsavefile)
+		//Starts reopen connection
+		reconnectCount++
+		if reconnectCount%*ReconnectCheck == 0 || *ReconnectCheck == 0 {
+			if err := connectToHEPBackend(); err != nil {
+				if *Debug == "on" {
+					log.Println("||-->", logsymbols.Error, " reconnect to HEP backend error: ", err.Error())
+				}
+			}
+			reconnectCount = 0
+		}
+
+		//Last check
+		if hepConnect == nil {
+			return fmt.Errorf("socket is still nil")
+		}
+	}
+
+	//
+	if _, err_HEPout := hepConnect.Write(data); err_HEPout != nil {
+
+		if *Debug == "on" {
+			log.Println("||-->", logsymbols.Error, "Sending HEP OUT error:", err_HEPout)
+		}
+
+		connectionStatus.Set(0)
+		copyHEPbufftoFile(data, HEPsavefile)
+
+		//Starts reopen connection
+		reconnectCount++
+		if reconnectCount%*ReconnectCheck == 0 || *ReconnectCheck == 0 {
+			if err := connectToHEPBackend(); err != nil {
+				if *Debug == "on" {
+					log.Println("||-->", logsymbols.Error, " reconnect to HEP backend error: ", err.Error())
+				}
+			}
+			reconnectCount = 0
+		}
+	} else {
+		if *Debug == "on" {
+			log.Println("||-->", logsymbols.Success, " Sent HEP successful. Size: ", len)
+		}
+	}
+
+	return nil
 }
 
 func copyHEPbufftoFile(inbytes []byte, file string) (int64, error) {
@@ -475,12 +326,16 @@ func copyHEPbufftoFile(inbytes []byte, file string) (int64, error) {
 	nBytes, err := destination.Write(inbytes)
 
 	if err != nil {
-		log.Println("||-->", logsymbols.Error, " File Send HEP from buffer to file error", err)
-		AppLogger.Println("||-->", logsymbols.Error, " File Send HEP from buffer to file error", err)
+		if *Debug == "on" {
+			log.Println("||-->", logsymbols.Error, " File Send HEP from buffer to file error", err)
+			AppLogger.Println("||-->", logsymbols.Error, " File Send HEP from buffer to file error", err)
+		}
 
 	} else {
-		log.Println("||-->", logsymbols.Success, " File Send HEP from buffer to file OK")
-		AppLogger.Println("||-->", logsymbols.Success, "File Send HEP from buffer to file OK")
+		if *Debug == "on" {
+			log.Println("||-->", logsymbols.Success, " File Send HEP from buffer to file OK")
+			AppLogger.Println("||-->", logsymbols.Success, "File Send HEP from buffer to file OK")
+		}
 
 		go hepBytesInFile.Add(float64(nBytes))
 
@@ -490,7 +345,7 @@ func copyHEPbufftoFile(inbytes []byte, file string) (int64, error) {
 
 }
 
-func copyHEPFileOut(outnet net.Conn) (int, error) {
+func copyHEPFileOut() (int, error) {
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -504,8 +359,13 @@ func copyHEPFileOut(outnet net.Conn) (int, error) {
 		fmt.Println("Read HEP file error", HEPFileDataerr)
 	}
 
+	if hepConnect == nil {
+		log.Println("||-->", logsymbols.Error, " connection is broken....")
+		return 0, fmt.Errorf("connection is broken")
+	}
+
 	//Send Logged HEP upon reconnect out to backend
-	hl, err := outnet.Write(HEPFileData)
+	hl, err := hepConnect.Write(HEPFileData)
 	if err != nil {
 		log.Println("||-->X Send HEP from LOG error", err)
 		AppLogger.Println("||-->X Send HEP from LOG error", err)
@@ -595,6 +455,16 @@ func main() {
 		}
 	}
 
+	productsQueue = queue.NewQueue("NewProducts")
+
+	go func() {
+		connectToHEPBackend()
+	}()
+
+	go func() {
+		doQueueJob()
+	}()
+
 	fmt.Printf("Listening for HEP on: %v\nProxying HEP to: %v\nProto HEP: %v\nIPFilter: %v\nIPFilterAction: %v\nPrometheus metrics: %v\n\n", *localAddr, *remoteAddr, *remoteProto, *IPfilter, *IPfilterAction, *PrometheusPort)
 	AppLogger.Println("Listening for HEP on:", *localAddr, "\n", "Proxying HEP to:", *remoteAddr, "\n", "Proto HEP:", *remoteProto, "\n", "IPFilter:", *IPfilter, "\n", "IPFilterAction:", *IPfilterAction, "\n", "Prometheus metrics:", *PrometheusPort)
 	if *IPfilter == "" {
@@ -614,15 +484,11 @@ func main() {
 	if err != nil {
 		fmt.Println(logsymbols.Error, "|| HFP starting error", err)
 		os.Exit(1)
-		//	} else {
-		//		fmt.Println(logsymbols.Success, "|| HFP listener started")
-		//
-		//	}
 	}
+
 	defer listener.Close()
 
 	go startMetrics(&wg)
-	go initLoopbackConn(&wg)
 
 	wg.Wait()
 
@@ -637,11 +503,8 @@ func main() {
 			return
 		}
 
-		//for i := 1; i <= 2; i++ {
-		go handleConnection(clientConn, *remoteAddr, *remoteProto)
-		//}
+		go handleConnection(clientConn)
 	}
-
 }
 
 func SendPingHEPPacket(conn net.Conn) {
