@@ -16,7 +16,7 @@ import (
 	"github.com/ivlovric/HFP/queue"
 )
 
-const AppVersion = "0.56.1"
+const AppVersion = "0.56.2"
 
 var localAddr *string = flag.String("l", ":9060", "Local HEP listening address")
 var remoteAddr *string = flag.String("r", "192.168.2.2:9060", "Remote HEP address")
@@ -30,6 +30,7 @@ var PrometheusPort *string = flag.String("prom", "8090", "Prometheus metrics por
 var KeepAlive *uint = flag.Uint("keepalive", 5, "keep alive internal - 5 seconds by default. 0 - disable")
 var ReconnectCheck *uint = flag.Uint("reconnect", 5, "reconnect after 5 packets. 0 - disable")
 var noDelayTCP *bool = flag.Bool("nodelay", true, "no delay in tcp connection. True by default")
+var decodeIncomingHEP *bool = flag.Bool("hepdecode", false, "decode incoming hep packets and print out into LOG")
 var maxBufferSize *string = flag.String("maxbuffer", "0", "max buffer size, can be B, MB, GB, TB. By default - unlimited")
 
 var (
@@ -139,6 +140,21 @@ func handleConnection(clientConn net.Conn) {
 
 		if *Debug == "on" {
 			log.Println("-->|| Got", n, "bytes on wire -- Total buffer size:", len(buf))
+		}
+
+		if *decodeIncomingHEP {
+			hepPkt, err := DecodeHEP(buf[:n])
+			if err != nil {
+				log.Println("Error decoding HEP in decode mode", err)
+			} else {
+				log.Println("HEP decoded START ====================================================")
+				log.Println("HEP decoded SRC IP/Port", hepPkt.SrcIP, ":", hepPkt.SrcPort)
+				log.Println("HEP decoded DST IP/Port", hepPkt.DstIP, ":", hepPkt.DstPort)
+				log.Println("HEP decoded Timestamp: ", hepPkt.Tsec, ", Usec:", hepPkt.Tmsec)
+				log.Println("HEP decoded correlation ID: ", hepPkt.CID)
+				log.Println("HEP Payload len: ", len(hepPkt.Payload), ", message: ", hepPkt.Payload)
+				log.Println("HEP decoded END ======================================================")
+			}
 		}
 
 		//Prometheus timestamp metric of incoming packet to detect lack of inbound HEP traffic
