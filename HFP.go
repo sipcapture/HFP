@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/tls"
 	"flag"
 	"fmt"
@@ -16,7 +17,7 @@ import (
 	"github.com/ivlovric/HFP/queue"
 )
 
-const AppVersion = "0.56.2"
+const AppVersion = "0.56.3"
 
 var localAddr *string = flag.String("l", ":9060", "Local HEP listening address")
 var remoteAddr *string = flag.String("r", "192.168.2.2:9060", "Remote HEP address")
@@ -123,6 +124,8 @@ func handleConnection(clientConn net.Conn) {
 		}
 	}()
 
+	var bufferPool bytes.Buffer
+
 	// use a buffer to transfer data between connections
 	buf := make([]byte, 65535)
 
@@ -137,6 +140,8 @@ func handleConnection(clientConn net.Conn) {
 			log.Println("Client connection closed:", err)
 			return
 		}
+
+		bufferPool.Write(buf[:n])
 
 		if *Debug == "on" {
 			log.Println("-->|| Got", n, "bytes on wire -- Total buffer size:", len(buf))
@@ -178,7 +183,10 @@ func handleConnection(clientConn net.Conn) {
 				if hepPkt.SrcIP == string(ipf) || hepPkt.DstIP == string(ipf) || string(buf[:n]) == "HELLO HFP" {
 
 					//Send HEP out to backend
-					hepJob := queue.Job{Type: 1, Data: buf[:n], Len: n, Action: sendHepOut}
+					hepJob := queue.Job{Type: 1, Len: n, Action: sendHepOut}
+					hepJob.Data = make([]byte, n)
+					copy(hepJob.Data, buf[:n])
+
 					productsQueue.AddJob(hepJob)
 
 					if *Debug == "on" {
@@ -223,7 +231,10 @@ func handleConnection(clientConn net.Conn) {
 
 			if !rejected {
 				//Send HEP out to backend
-				hepJob := queue.Job{Type: 1, Data: buf[:n], Len: n, Action: sendHepOut}
+				hepJob := queue.Job{Type: 1, Len: n, Action: sendHepOut}
+				hepJob.Data = make([]byte, n)
+				copy(hepJob.Data, buf[:n])
+
 				productsQueue.AddJob(hepJob)
 				if *Debug == "on" {
 					log.Println("||-->", logsymbols.Success, " Sending HEP OUT successful with filter")
@@ -233,7 +244,10 @@ func handleConnection(clientConn net.Conn) {
 		} else {
 
 			//Send HEP out to backend
-			hepJob := queue.Job{Type: 1, Data: buf[:n], Len: n, Action: sendHepOut}
+			hepJob := queue.Job{Type: 1, Len: n, Action: sendHepOut}
+			hepJob.Data = make([]byte, n)
+			copy(hepJob.Data, buf[:n])
+
 			productsQueue.AddJob(hepJob)
 
 			if *Debug == "on" {
@@ -282,10 +296,12 @@ func sendHepOut(data []byte, len int) error {
 	}
 
 	//
-	if _, err_HEPout := hepConnect.Write(data); err_HEPout != nil {
+	size, err := hepConnect.Write(data)
+
+	if err != nil {
 
 		if *Debug == "on" {
-			log.Println("||-->", logsymbols.Error, "Sending HEP OUT error:", err_HEPout)
+			log.Println("||-->", logsymbols.Error, "Sending HEP OUT error:", err)
 		}
 
 		connectionStatus.Set(0)
@@ -303,7 +319,7 @@ func sendHepOut(data []byte, len int) error {
 		}
 	} else {
 		if *Debug == "on" {
-			log.Println("||-->", logsymbols.Success, " Sent HEP successful. Size: ", len)
+			log.Println("||-->", logsymbols.Success, " Sent HEP successful. Orig size: ", len, ", Sent size: ", size)
 		}
 	}
 
