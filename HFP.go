@@ -17,7 +17,7 @@ import (
 	"github.com/ivlovric/HFP/queue"
 )
 
-const AppVersion = "0.56.4"
+const AppVersion = "0.56.5"
 
 var localAddr *string = flag.String("l", ":9060", "Local HEP listening address")
 var remoteAddr *string = flag.String("r", "192.168.2.2:9060", "Remote HEP address")
@@ -87,6 +87,12 @@ func connectToHEPBackend() error {
 	if err != nil {
 		log.Println("Unable to connect to server: ", err)
 		connectionStatus.Set(0)
+
+		if hepConnect != nil {
+			log.Println("Lets close the connection if it still valid")
+			hepConnect.Close()
+		}
+
 		return fmt.Errorf("couldn't connect to server: %s", err.Error())
 	} else {
 		log.Println("Connected to server successfully")
@@ -101,6 +107,7 @@ func connectToHEPBackend() error {
 			tcpCon.SetKeepAlive(true)
 			tcpCon.SetKeepAlivePeriod(time.Second * time.Duration(*KeepAlive))
 		}
+
 		//Nodelay
 		tcpCon.SetNoDelay(*noDelayTCP)
 		SendPingHEPPacket(hepConnect)
@@ -281,12 +288,14 @@ func sendHepOut(data []byte, len int) error {
 		//Starts reopen connection
 		reconnectCount++
 		if *ReconnectCheck == 0 || reconnectCount%*ReconnectCheck == 0 {
+			reconnectCount = 0
 			if err := connectToHEPBackend(); err != nil {
 				if *Debug == "on" {
 					log.Println("||-->", logsymbols.Error, " reconnect to HEP backend error: ", err.Error())
 				}
+
+				return fmt.Errorf("bad reconnect: %s", err.Error())
 			}
-			reconnectCount = 0
 		}
 
 		//Last check
