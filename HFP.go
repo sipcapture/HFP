@@ -17,7 +17,7 @@ import (
 	"github.com/ivlovric/HFP/queue"
 )
 
-const AppVersion = "0.56.3"
+const AppVersion = "0.56.4"
 
 var localAddr *string = flag.String("l", ":9060", "Local HEP listening address")
 var remoteAddr *string = flag.String("r", "192.168.2.2:9060", "Remote HEP address")
@@ -280,7 +280,7 @@ func sendHepOut(data []byte, len int) error {
 		copyHEPbufftoFile(data, HEPsavefile)
 		//Starts reopen connection
 		reconnectCount++
-		if reconnectCount%*ReconnectCheck == 0 || *ReconnectCheck == 0 {
+		if *ReconnectCheck == 0 || reconnectCount%*ReconnectCheck == 0 {
 			if err := connectToHEPBackend(); err != nil {
 				if *Debug == "on" {
 					log.Println("||-->", logsymbols.Error, " reconnect to HEP backend error: ", err.Error())
@@ -309,7 +309,7 @@ func sendHepOut(data []byte, len int) error {
 
 		//Starts reopen connection
 		reconnectCount++
-		if reconnectCount%*ReconnectCheck == 0 || *ReconnectCheck == 0 {
+		if *ReconnectCheck == 0 || reconnectCount%*ReconnectCheck == 0 {
 			if err := connectToHEPBackend(); err != nil {
 				if *Debug == "on" {
 					log.Println("||-->", logsymbols.Error, " reconnect to HEP backend error: ", err.Error())
