@@ -17,7 +17,7 @@ import (
 	"github.com/ivlovric/HFP/queue"
 )
 
-const AppVersion = "0.56.5"
+const AppVersion = "0.56.6"
 
 var localAddr *string = flag.String("l", ":9060", "Local HEP listening address")
 var remoteAddr *string = flag.String("r", "192.168.2.2:9060", "Remote HEP address")
@@ -87,12 +87,6 @@ func connectToHEPBackend() error {
 	if err != nil {
 		log.Println("Unable to connect to server: ", err)
 		connectionStatus.Set(0)
-
-		if hepConnect != nil {
-			log.Println("Lets close the connection if it still valid")
-			hepConnect.Close()
-		}
-
 		return fmt.Errorf("couldn't connect to server: %s", err.Error())
 	} else {
 		log.Println("Connected to server successfully")
