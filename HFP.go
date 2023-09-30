@@ -17,7 +17,7 @@ import (
 	"github.com/ivlovric/HFP/queue"
 )
 
-const AppVersion = "0.56.6"
+const AppVersion = "0.56.7"
 
 var localAddr *string = flag.String("l", ":9060", "Local HEP listening address")
 var remoteAddr *string = flag.String("r", "192.168.2.2:9060", "Remote HEP address")
@@ -42,6 +42,7 @@ var (
 	MaxBufferSizeBytes int64  = 0
 	productsQueue      *queue.Queue
 	hepConnect         net.Conn
+	forceReconnect     bool = true
 	reconnectCount     uint
 )
 
@@ -64,14 +65,10 @@ func connectToHEPBackend() error {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Println(fmt.Printf("Panic: %v,\n%s", r, debug.Stack()))
+			forceReconnect = true
 			return
 		}
 	}()
-
-	if hepConnect != nil {
-		log.Println("Lets close the connection first")
-		hepConnect.Close()
-	}
 
 	dst := *remoteAddr
 	proto := *remoteProto
@@ -87,6 +84,7 @@ func connectToHEPBackend() error {
 	if err != nil {
 		log.Println("Unable to connect to server: ", err)
 		connectionStatus.Set(0)
+		forceReconnect = true
 		return fmt.Errorf("couldn't connect to server: %s", err.Error())
 	} else {
 		log.Println("Connected to server successfully")
@@ -107,6 +105,7 @@ func connectToHEPBackend() error {
 		SendPingHEPPacket(hepConnect)
 		time.Sleep(time.Second * 1)
 		connectionStatus.Set(1)
+		forceReconnect = false
 
 		if _, err := copyHEPFileOut(); err != nil {
 			log.Println("||-->", logsymbols.Error, "Sending HEP from file error....:", err)
@@ -192,9 +191,9 @@ func handleConnection(clientConn net.Conn) {
 
 					if *Debug == "on" {
 						if string(buf[:n]) == "HELLO HFP" {
-							log.Println("||--> Sending init HELLO HFP successful with filter for", string(ipf))
+							log.Println("||--> Added job HFP to the queue successful with filter for", string(ipf))
 						} else {
-							log.Println("||--> Sending HEP OUT successful with filter for", string(ipf))
+							log.Println("||--> Added job to the queue with filter for", string(ipf))
 						}
 					}
 				}
@@ -238,7 +237,7 @@ func handleConnection(clientConn net.Conn) {
 
 				productsQueue.AddJob(hepJob)
 				if *Debug == "on" {
-					log.Println("||-->", logsymbols.Success, " Sending HEP OUT successful with filter")
+					log.Println("||-->", logsymbols.Success, " Added HEP OUT job successful with filter")
 				}
 			}
 
@@ -253,9 +252,9 @@ func handleConnection(clientConn net.Conn) {
 
 			if *Debug == "on" {
 				if string(buf[:n]) == "HELLO HFP" {
-					log.Println("||-->", logsymbols.Success, " Sending init HELLO HFP successful without filters")
+					log.Println("||-->", logsymbols.Success, " Added HELLO HFP job successful without filters")
 				} else {
-					log.Println("||-->", logsymbols.Success, " Sending HEP OUT successful without filters")
+					log.Println("||-->", logsymbols.Success, " Added HEP OUT job successful without filters")
 				}
 			}
 
@@ -268,12 +267,13 @@ func sendHepOut(data []byte, len int) error {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Println(fmt.Printf("sendHepOut to panic: %v,\n%s", r, debug.Stack()))
+			forceReconnect = true
 			return
 		}
 	}()
 
 	//If socket is nil - reconnect....
-	if hepConnect == nil {
+	if hepConnect == nil || forceReconnect {
 		if *Debug == "on" {
 			log.Println("||-->", logsymbols.Error, "socket is nil:")
 		}
@@ -294,6 +294,7 @@ func sendHepOut(data []byte, len int) error {
 
 		//Last check
 		if hepConnect == nil {
+			forceReconnect = true
 			return fmt.Errorf("socket is still nil")
 		}
 	}
@@ -308,6 +309,8 @@ func sendHepOut(data []byte, len int) error {
 		}
 
 		connectionStatus.Set(0)
+		forceReconnect = true
+
 		copyHEPbufftoFile(data, HEPsavefile)
 
 		//Starts reopen connection
@@ -317,6 +320,8 @@ func sendHepOut(data []byte, len int) error {
 				if *Debug == "on" {
 					log.Println("||-->", logsymbols.Error, " reconnect to HEP backend error: ", err.Error())
 				}
+			} else {
+				forceReconnect = false
 			}
 			reconnectCount = 0
 		}
@@ -394,7 +399,7 @@ func copyHEPFileOut() (int, error) {
 		fmt.Println("Read HEP file error", HEPFileDataerr)
 	}
 
-	if hepConnect == nil {
+	if hepConnect == nil || forceReconnect {
 		log.Println("||-->", logsymbols.Error, " connection is broken....")
 		return 0, fmt.Errorf("connection is broken")
 	}
@@ -405,6 +410,7 @@ func copyHEPFileOut() (int, error) {
 		log.Println("||-->X Send HEP from LOG error", err)
 		AppLogger.Println("||-->X Send HEP from LOG error", err)
 		hepFileFlushesError.Inc()
+		forceReconnect = true
 	} else {
 		fi, err := os.Stat(HEPsavefile)
 		if err != nil {
@@ -547,6 +553,7 @@ func SendPingHEPPacket(conn net.Conn) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Println(fmt.Printf("hep ping panic: %v,\n%s", r, debug.Stack()))
+			forceReconnect = true
 			return
 		}
 	}()
@@ -564,10 +571,17 @@ func SendPingHEPPacket(conn net.Conn) {
 
 	//Send Logged HEP upon reconnect out to backend
 	_, err = conn.Write(msg)
+
 	if err != nil {
+		forceReconnect = true
 		log.Println("||-->X Send HEP PING", err)
 		AppLogger.Println("||-->X Send HEP PING", err)
-	} else if *Debug == "on" {
-		log.Println("-->|| Sent HEP Ping")
+
+	} else {
+
+		forceReconnect = false
+		if *Debug == "on" {
+			log.Println("-->|| Sent HEP Ping")
+		}
 	}
 }
