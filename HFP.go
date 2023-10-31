@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"crypto/tls"
 	"flag"
 	"fmt"
@@ -124,8 +123,6 @@ func handleConnection(clientConn net.Conn) {
 		}
 	}()
 
-	var bufferPool bytes.Buffer
-
 	// use a buffer to transfer data between connections
 	buf := make([]byte, 65535)
 
@@ -140,8 +137,6 @@ func handleConnection(clientConn net.Conn) {
 			log.Println("Client connection closed:", err)
 			return
 		}
-
-		bufferPool.Write(buf[:n])
 
 		if *Debug == "on" {
 			log.Println("-->|| Got", n, "bytes on wire -- Total buffer size:", len(buf))
