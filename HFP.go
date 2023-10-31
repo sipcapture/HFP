@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"crypto/tls"
 	"flag"
 	"fmt"
@@ -17,7 +16,7 @@ import (
 	"github.com/ivlovric/HFP/queue"
 )
 
-const AppVersion = "0.56.7"
+const AppVersion = "0.56.8"
 
 var localAddr *string = flag.String("l", ":9060", "Local HEP listening address")
 var remoteAddr *string = flag.String("r", "192.168.2.2:9060", "Remote HEP address")
@@ -124,8 +123,6 @@ func handleConnection(clientConn net.Conn) {
 		}
 	}()
 
-	var bufferPool bytes.Buffer
-
 	// use a buffer to transfer data between connections
 	buf := make([]byte, 65535)
 
@@ -140,8 +137,6 @@ func handleConnection(clientConn net.Conn) {
 			log.Println("Client connection closed:", err)
 			return
 		}
-
-		bufferPool.Write(buf[:n])
 
 		if *Debug == "on" {
 			log.Println("-->|| Got", n, "bytes on wire -- Total buffer size:", len(buf))
