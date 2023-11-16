@@ -16,7 +16,7 @@ import (
 	"github.com/ivlovric/HFP/queue"
 )
 
-const AppVersion = "0.56.8"
+const AppVersion = "0.56.9"
 
 var localAddr *string = flag.String("l", ":9060", "Local HEP listening address")
 var remoteAddr *string = flag.String("r", "192.168.2.2:9060", "Remote HEP address")
@@ -29,7 +29,7 @@ var Debug *string = flag.String("d", "off", "Debug options are off or on")
 var PrometheusPort *string = flag.String("prom", "8090", "Prometheus metrics port")
 var KeepAlive *uint = flag.Uint("keepalive", 5, "keep alive internal - 5 seconds by default. 0 - disable")
 var ReconnectCheck *uint = flag.Uint("reconnect", 5, "reconnect after 5 packets. 0 - disable")
-var noDelayTCP *bool = flag.Bool("nodelay", true, "no delay in tcp connection. True by default")
+var noDelayTCP *bool = flag.Bool("nodelay", false, "no delay in tcp connection. False by default")
 var decodeIncomingHEP *bool = flag.Bool("hepdecode", false, "decode incoming hep packets and print out into LOG")
 var maxBufferSize *string = flag.String("maxbuffer", "0", "max buffer size, can be B, MB, GB, TB. By default - unlimited")
 
